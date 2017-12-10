@@ -1,19 +1,22 @@
-
 <!DOCTYPE html>
 <meta charset="utf-8">
-<title>Satellite Tiles in D3</title>
+<title>Reprojected Raster Tiles</title>
 <style>
-@import url(css/maps.css);
+@import url(http://www.jasondavies.com/maps/maps.css);
 
 #map {
   position: relative;
   margin: 0 auto;
   overflow: hidden;
-  background:#1A1C37;
 }
 
-canvas {
-  cursor: auto;
+.layer0 {
+  -webkit-transform: scale(.5);
+  -webkit-transform-origin: 0 0 0;
+}
+
+.layer {
+  -webkit-transform-origin: 0 0 0;
 }
 
 .tile {
@@ -21,46 +24,46 @@ canvas {
 }
 </style>
 
-<h1>Sentinel 2 Cloudless Tiles in D3 Satellite View</h1>
 <div id="map"></div>
+<p class="caption">Zoomable raster world map on an Lambert Conic Conformal aka Massachusetts State Plane.
 
 <div class="wrapper">
-  <p>Based on a genius on-the-fly <a href="http://www.jasondavies.com/maps/raster/satellite/" target="_blank">tile reprojection script</a> by Jason Davies, using <a href="http://bl.ocks.org/mbostock/3790444">a D3 adaptation</a> by Mike Bostock. Data provided by <a href="http://earthobservatory.nasa.gov/NaturalHazards/view.php?id=79803" target="_blank">NASA</a> and served by <a href="http://a.tiles.mapbox.com/v3/landplanner.map-fs3yp666.html#5.00/42.420/4.480" target="_blank">Mapbox</a>.
+  <p>Based off <a href="http://www.jasondavies.com/maps/raster/"> Jason Davies map</a> which is a combination of <a href="http://bl.ocks.org/mbostock/4329423">Mike Bostock’s raster reprojection</a>, <a href="../tile/">automatic projection tiles</a> and a <a href="http://a.tiles.mapbox.com/v3/examples.map-4l7djmvo/page.html">MapBox terrain example</a>.
 </div>
 
 <script src="js/d3.min.js"></script>
 <script src="js/d3.geo.projection.min.js"></script>
 <script src="js/topojson.min.js"></script>
 <script src="js/d3.quadtiles.js"></script>
-<script src="js/raster.js"></script>
-<script src="js/d3.geo.polyhedron.min."></script>
 <script>
 
 var ratio = 2,
-    radians = Math.PI / 180,
     width = 960 * ratio,
-    height = 960 * ratio,
+    height = 600 * ratio,
     p = .5;
-var projection = d3.geo.satellite()
-    .translate([width / 2, .65 * height / 2])
-    .scale(5500 * ratio)
-    .distance(1.1)
-    .rotate([1.00, -47.50, 32.12])
-    .center([-2, 5])
-    .tilt(25)
-    .clipAngle(Math.acos(1 / 1.1) * 180 / Math.PI - 1e-6)
-    .clipExtent([[p, p], [width - p, height - p]]);// var projection = d3.geo.satellite()
 
-var path = d3.geo.path().projection(projection);
+var projection = d3.geo.winkel3()
+    .scale(282)
+    .translate([width / 2, height / 2])
+    .precision(.1);
 
 var layer = d3.select("#map")
     .style("width", width / ratio + "px")
     .style("height", height / ratio + "px")
-  .append("div")
-    .style(prefix + "transform", "scale(.5)")
-    .style(prefix + "transform-origin", "0 0 0")
-  .append("div")
-    .style(prefix + "transform-origin", "0 0 0");
+    .call(d3.behavior.zoom()
+      .translate([.5 * width / ratio, .5 * height / ratio])
+      .scale(projection.scale() / ratio)
+      .scaleExtent([1e2, 1e8])
+      .on("zoom", function() {
+        var t = d3.event.translate,
+            s = d3.event.scale;
+        projection.translate([t[0] * ratio, t[1] * ratio]).scale(s * ratio);
+        redraw();
+      }))
+  .append("div").attr("class", "layer0")
+  .append("div").attr("class", "layer")
+
+var path = d3.geo.path().projection(projection);
 
 var imgCanvas = document.createElement("canvas"),
     imgContext = imgCanvas.getContext("2d");
@@ -69,7 +72,6 @@ function onload(d, canvas, pot) {
   var t = projection.translate(),
       s = projection.scale(),
       c = projection.clipExtent(),
-      cr = Math.cos(projection.clipAngle() * radians),
       image = d.image,
       dx = image.width,
       dy = image.height,
@@ -87,17 +89,16 @@ function onload(d, canvas, pot) {
       x1 = bounds[1][0] + 1 | 0,
       y1 = bounds[1][1] + 1 | 0;
 
-  var offset = 180
   var λ0 = k[0] / width * 360 - 180,
       λ1 = (k[0] + 1) / width * 360 - 180,
-      φ1 = mercatorφ(k[1] / width * 360 - offset),
-      φ0 = mercatorφ((k[1] + 1) / width * 360 - offset);
+      φ1 = mercatorφ(k[1] / width * 360 - 180),
+      φ0 = mercatorφ((k[1] + 1) / width * 360 - 180);
 
   var width = canvas.width = x1 - x0,
       height = canvas.height = y1 - y0,
       context = canvas.getContext("2d");
 
-  if (width > 0 && height > 0) {
+  if (width && height) {
     var sourceData = imgContext.getImageData(0, 0, dx, dy).data,
         target = context.createImageData(width, height),
         targetData = target.data;
@@ -105,9 +106,10 @@ function onload(d, canvas, pot) {
     for (var y = y0, i = -1; y < y1; ++y) {
       for (var x = x0; x < x1; ++x) {
         var p = projection.invert([x, y]), λ = p[0], φ = p[1];
-        if (isNaN(λ) || isNaN(φ) || λ > λ1 || λ < λ0 || φ > φ1 || φ < φ0) { i += 4; continue; }
+        if (λ > λ1 || λ < λ0 || φ > φ1 || φ < φ0) { i += 4; continue; }
 
         var q = (((λ - λ0) / (λ1 - λ0) * dx | 0) + ((φ1 - φ) / (φ1 - φ0) * dy | 0) * dx) * 4;
+        //var q = ((90 - φ) / 180 * dy | 0) * dx + ((180 + λ) / 360 * dx | 0) << 2;
         targetData[++i] = sourceData[q];
         targetData[++i] = sourceData[++q];
         targetData[++i] = sourceData[++q];
@@ -133,7 +135,7 @@ function redraw() {
       t = projection.translate(),
       z = pot - 6;
 
-  layer.style(prefix + "transform", "translate(" + t.map(pixel) + ")scale(" + ds + ")");
+  layer.style("-webkit-transform", "translate(" + t.map(pixel) + ")scale(" + ds + ")");
 
   var tile = layer.selectAll(".tile")
       .data(d3.quadTiles(projection, z), key);
@@ -143,11 +145,9 @@ function redraw() {
         var canvas = this;
         var image = d.image = new Image;
         image.crossOrigin = true;
-        image.onload = function() { setTimeout(function() { onload(d, canvas, pot); }, 1); };
+        image.onload = function() { onload(d, canvas, pot); };
         var k = d.key;
-        // image.src = "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless/default/WGS84/" +k[2] + "/"+k[1]+"/"+k[0]+".jpg";
         image.src = "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/" +k[2] + "/"+k[1]+"/"+k[0]+".jpg";
-        //image.src = "http://" + ["a", "b", "c"][(k[0] * 31 + k[1]) % 3] + ".tiles.mapbox.com/v3/landplanner.map-fs3yp666,landplanner.map-myrev9t7/" + k[2] + "/" + k[0] + "/" + k[1] + ".png";
       });
   tile.exit().remove();
 }

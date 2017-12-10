@@ -12,6 +12,17 @@
   background:#1A1C37;
 }
 
+.graticule {
+  fill: none;
+  stroke: #777;
+  stroke-width: 0.5px;
+  stroke-opacity: 0.5;
+}
+
+.land {
+  fill: #222;
+}
+
 canvas {
   cursor: auto;
 }
@@ -27,7 +38,6 @@ canvas {
 <div class="wrapper">
   <p>Based on a genius on-the-fly <a href="http://www.jasondavies.com/maps/raster/satellite/" target="_blank">tile reprojection script</a> by Jason Davies, using <a href="http://bl.ocks.org/mbostock/3790444">a D3 adaptation</a> by Mike Bostock. Data provided by <a href="http://earthobservatory.nasa.gov/NaturalHazards/view.php?id=79803" target="_blank">NASA</a> and served by <a href="http://a.tiles.mapbox.com/v3/landplanner.map-fs3yp666.html#5.00/42.420/4.480" target="_blank">Mapbox</a>.
 </div>
-
 <script src="js/d3.min.js"></script>
 <script src="js/d3.geo.projection.min.js"></script>
 <script src="js/topojson.min.js"></script>
@@ -41,17 +51,11 @@ var ratio = 2,
     width = 960 * ratio,
     height = 960 * ratio,
     p = .5;
-var projection = d3.geo.satellite()
-    .translate([width / 2, .65 * height / 2])
-    .scale(5500 * ratio)
-    .distance(1.1)
-    .rotate([1.00, -47.50, 32.12])
-    .center([-2, 5])
-    .tilt(25)
-    .clipAngle(Math.acos(1 / 1.1) * 180 / Math.PI - 1e-6)
-    .clipExtent([[p, p], [width - p, height - p]]);// var projection = d3.geo.satellite()
-
-var path = d3.geo.path().projection(projection);
+var projection = d3.geo.peirceQuincuncial() // N.B. geoPeirceQuincuncial in 1.1+
+    // .scale(314)
+    .scale(414)
+    .translate([width / 2, height / 2])
+    .precision(0.1);
 
 var layer = d3.select("#map")
     .style("width", width / ratio + "px")
@@ -64,6 +68,8 @@ var layer = d3.select("#map")
 
 var imgCanvas = document.createElement("canvas"),
     imgContext = imgCanvas.getContext("2d");
+
+var path = d3.geo.path().projection(projection);
 
 function onload(d, canvas, pot) {
   var t = projection.translate(),
@@ -134,7 +140,6 @@ function redraw() {
       z = pot - 6;
 
   layer.style(prefix + "transform", "translate(" + t.map(pixel) + ")scale(" + ds + ")");
-
   var tile = layer.selectAll(".tile")
       .data(d3.quadTiles(projection, z), key);
   tile.enter().append("canvas")
@@ -145,11 +150,14 @@ function redraw() {
         image.crossOrigin = true;
         image.onload = function() { setTimeout(function() { onload(d, canvas, pot); }, 1); };
         var k = d.key;
-        // image.src = "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless/default/WGS84/" +k[2] + "/"+k[1]+"/"+k[0]+".jpg";
         image.src = "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/" +k[2] + "/"+k[1]+"/"+k[0]+".jpg";
-        //image.src = "http://" + ["a", "b", "c"][(k[0] * 31 + k[1]) % 3] + ".tiles.mapbox.com/v3/landplanner.map-fs3yp666,landplanner.map-myrev9t7/" + k[2] + "/" + k[0] + "/" + k[1] + ".png";
-      });
+      })
   tile.exit().remove();
+  tile.enter().append("path")
+        .datum(graticule)
+        .attr("class", "graticule")
+        .attr("d", path);
+  tile.exit().remove()
 }
 
 function key(d) { return d.key.join(", "); }
